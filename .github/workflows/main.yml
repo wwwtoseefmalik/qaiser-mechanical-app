@@ -1,58 +1,55 @@
-name: Build APK
+name: Build Admin APK
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Extract Project ZIP & Inject Admin Logic
-      run: |
-        unzip -o qaiser-mechanical.zip
-        
-        # Match Package Name with Firebase
-        if [ -f "app/google-services.json" ]; then
-          PKG=$(grep -o '"package_name": "[^"]*' app/google-services.json | head -n 1 | cut -d'"' -f4)
-          if [ -n "$PKG" ]; then
-            sed -i "s/applicationId = .*/applicationId = \"$PKG\"/g" app/build.gradle.kts || true
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Extract Project ZIP & Inject Dedicated Admin Dashboard
+        run: |
+          mkdir project_files
+          unzip -o *.zip -d project_files/
+          
+          # Find project root
+          PROJ_ROOT=$(find project_files -maxdepth 2 -name "build.gradle*" -exec dirname {} \; | head -n 1)
+          if [ -z "$PROJ_ROOT" ]; then
+            PROJ_ROOT="project_files"
           fi
-        fi
+          echo "PROJ_ROOT=$PROJ_ROOT" >> $GITHUB_ENV
 
-        # Set Admin Email Check in Kotlin Source Files
-        find . -name "*.kt" -exec sed -i 's/ADMIN_EMAIL = .*/ADMIN_EMAIL = "www.toseef446@gmail.com"/g' {} + || true
+          # Inject dedicated Admin Panel in Profile / Screens
+          find "$PROJ_ROOT" -type f -name "*.kt" | while read -r file; do
+            sed -i 's/toseef446@gmail.com/www.toseef446@gmail.com/gI' "$file"
+          done
 
-        # Generate debug keystore
-        mkdir -p ~/.android
-        keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" || true
-        cp debug.keystore app/debug.keystore || true
-        cp debug.keystore ~/.android/debug.keystore || true
+      - name: Grant Execute Permission for Gradle
+        run: |
+          cd $PROJ_ROOT
+          chmod +x gradlew || gradle wrapper
 
-        chmod +x gradlew || true
+      - name: Build Release/Debug APK
+        run: |
+          cd $PROJ_ROOT
+          ./gradlew assembleDebug --stacktrace
 
-    - name: Build with Gradle
-      run: |
-        if [ ! -f "gradlew" ]; then
-          gradle wrapper
-        fi
-        chmod +x gradlew
-        ./gradlew assembleDebug --no-daemon -x validateSigningDebug
-
-    - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: qaiser-mechanical-admin-apk
-        path: app/build/outputs/apk/debug/*.apk
-        
+      - name: Upload Admin APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: qaiser-mechanical-admin-exclusive-apk
+          path: ${{ env.PROJ_ROOT }}/app/build/outputs/apk/debug/*.apk
+          
