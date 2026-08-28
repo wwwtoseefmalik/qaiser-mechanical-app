@@ -22,6 +22,14 @@ jobs:
     - name: Extract Project ZIP
       run: |
         unzip -o qaiser-mechanical.zip
+        # Auto-match package name from google-services.json
+        if [ -f "app/google-services.json" ]; then
+          PKG=$(grep -o '"package_name": "[^"]*' app/google-services.json | head -n 1 | cut -d'"' -f4)
+          if [ -n "$PKG" ]; then
+            echo "Auto Detected Package Name: $PKG"
+            sed -i "s/applicationId = .*/applicationId = \"$PKG\"/g" app/build.gradle.kts || true
+          fi
+        fi
         chmod +x gradlew || true
 
     - name: Build with Gradle
